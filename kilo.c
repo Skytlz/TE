@@ -7,18 +7,21 @@
 #define _BSD_SOURCE
 #define _GNU_SOURCE
 
-#include <stdlib.h>
-#include <errno.h>
-#include <unistd.h>
-#include <termios.h>
 #include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/types.h>
+#include <termios.h>
+#include <unistd.h>
+
 
 /*** Defines ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
 #define VERSION "0.0.1"
+#define TAB_STOP 8
 
 enum editorKey {
     ARROW_UP = 1000,
@@ -35,7 +38,9 @@ enum editorKey {
 /*** Data ***/
 typedef struct erow {
     int size;
+    int rsize;
     char *data;
+    char *render;
 } erow;
 
 struct editorConfig {
@@ -100,7 +105,7 @@ int editorReadKey() {
                 if (seq[2] == '~') {
                     switch (seq[1]) {
                         case '1': return HOME;
-                        case '2': return DEL;
+                        case '3': return DEL;
                         case '4': return END;
                         case '5': return PAGE_UP;
                         case '6': return PAGE_DOWN;
@@ -108,14 +113,15 @@ int editorReadKey() {
                         case '8': return END;
                     }
                 }
-            }
-            switch (seq[1]) {
-                case 'A': return ARROW_UP;
-                case 'B': return ARROW_DOWN;
-                case 'C': return ARROW_RIGHT;
-                case 'D': return ARROW_LEFT;
-                case 'H': return HOME;
-                case 'F': return END;
+            } else{
+                switch (seq[1]) {
+                    case 'A': return ARROW_UP;
+                    case 'B': return ARROW_DOWN;
+                    case 'C': return ARROW_RIGHT;
+                    case 'D': return ARROW_LEFT;
+                    case 'H': return HOME;
+                    case 'F': return END;
+                }
             }
         } else if (seq[0] == 'O') {
             switch (seq[1]) {
@@ -124,8 +130,9 @@ int editorReadKey() {
             }
         }
         return '\x1b';
+    } else {
+        return c;
     }
-    return c;
 }
 
 int getCursorPosition(int *width, int *height) {
@@ -154,13 +161,35 @@ int getWindowSize(int *width, int *height) {
         ws.ws_col == 0) {
         if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;
         return getCursorPosition(width, height);
+    } else {
+        *width = ws.ws_col;
+        *height = ws.ws_row;
+        return 0;
     }
-    *width = ws.ws_col;
-    *height = ws.ws_row;
-    return 0;
 }
 
 /*** Row Operations ***/
+
+void editorUpdateRow(erow *row) {
+    int tabs = 0;
+    for (int j = 0; j < row->size; j++)
+        if (row->data[j] == '\t') tabs++;
+
+    free(row->render);
+    row->render = malloc(row->size + tabs*(TAB_STOP - 1)+ 1);
+
+    int idx = 0;
+    for (int j = 0; j < row->size; j++) {
+        if (row->data[j] == '\t') {
+            row->render[idx++] = ' ';
+            while (idx % TAB_STOP != 0) row->render[idx++] = ' ';
+        }else {
+            row->render[idx++] = row->data[j];
+        }
+    }
+    row->render[idx] = '\0';
+    row->size = idx;
+}
 
 void editorAppendRow(char *s, size_t len) {
     E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
@@ -170,6 +199,10 @@ void editorAppendRow(char *s, size_t len) {
     E.row[at].data = malloc(len + 1);
     memcpy(E.row[at].data, s, len);
     E.row[at].data[len] = '\0';
+
+    E.row[at].rsize = 0;
+    E.row[at].render = NULL;
+
     E.numrows++;
 }
 
@@ -181,7 +214,6 @@ void editorOpen(char *filename) {
     char *line = NULL;
     size_t linecap = 0;
     ssize_t linelen;
-    linelen = getline(&line, &linecap, fp);
     while ((linelen = getline(&line, &linecap, fp)) != -1) {
         while (linelen > 0 && (line[linelen - 1] == '\n' || line[linelen - 1] == '\r'))
             linelen--;
@@ -248,10 +280,10 @@ void editorDrawRows(struct append_buffer *ab) {
                 appendBufferAppend(ab, "~", 1);
             }
         } else {
-            int len = E.row[filerow].size - E.coloffset;
+            int len = E.row[filerow].rsize - E.coloffset;
             if (len < 0) len = 0;
             if (len > E.screen_width) len = E.screen_width;
-            appendBufferAppend(ab, &E.row[filerow].data[E.coloffset], len);
+            appendBufferAppend(ab, &E.row[filerow].render[E.coloffset], len);
         }
 
         appendBufferAppend(ab, "\x1b[K", 3);
