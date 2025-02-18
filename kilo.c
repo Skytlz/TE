@@ -26,6 +26,7 @@
 #define TAB_STOP 8
 
 enum editorKey {
+    BACKSPACE = 127,
     ARROW_UP = 1000,
     ARROW_DOWN,
     ARROW_LEFT,
@@ -446,6 +447,9 @@ void editorProcessKeypress() {
     int c = editorReadKey();
 
     switch (c) {
+        case '\r':
+            /* TODO */
+            break;
         case CTRL_KEY('q'):
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
@@ -459,6 +463,12 @@ void editorProcessKeypress() {
                 E.cx = E.row[E.cy].size;
             }
             break;
+        case BACKSPACE:
+        case CTRL_KEY('h'):
+        case DEL:
+            /* TODO */
+            break;
+
         case PAGE_UP:
         case PAGE_DOWN:
             {
@@ -478,6 +488,10 @@ void editorProcessKeypress() {
         case ARROW_LEFT:
         case ARROW_RIGHT:
             editorMoveCursor(c);
+            break;
+
+        case CTRL_KEY('l'):
+        case '\x1b':
             break;
 
         default:
