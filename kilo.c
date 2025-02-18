@@ -321,8 +321,13 @@ void editorDrawStatusBar(struct append_buffer *ab) {
     if (len > E.screen_width) len = E.screen_width;
     appendBufferAppend(ab, status, len);
     while (len < E.screen_width) {
-        appendBufferAppend(ab, " ", 1);
-        len++;
+        if (E.screen_width - len == rlen) {
+            appendBufferAppend(ab, rstatus, rlen);
+            break;
+        } else{
+            appendBufferAppend(ab, " ", 1);
+            len++;
+        }
     }
     appendBufferAppend(ab, "\x1b[m", 3);
 }
