@@ -50,8 +50,8 @@ struct editorConfig {
     int rx;
     int rowoffset;
     int coloffset;
-    int screen_width;
-    int screen_height;
+    int screenrows;
+    int screencols;
     int numrows;
     erow *row;
     char *filename;
@@ -62,6 +62,8 @@ struct editorConfig {
 
 struct editorConfig E;
 
+/*** Terminal ***/
+
 void die(const char *s) {
     write(STDOUT_FILENO, "\x1b[2J", 4);
     write(STDOUT_FILENO, "\x1b[H", 3);
@@ -70,7 +72,6 @@ void die(const char *s) {
     exit(1);
 }
 
-/*** Terminal ***/
 void disableRawMode() {
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1)
         die("tcsetattr");
@@ -141,7 +142,7 @@ int editorReadKey() {
     }
 }
 
-int getCursorPosition(int *width, int *height) {
+int getCursorPosition(int *rows, int *cols) {
     char buffer[32];
     unsigned int i = 0;
 
@@ -155,28 +156,28 @@ int getCursorPosition(int *width, int *height) {
     buffer[i] = '\0';
 
     if (buffer[0] != '\x1b' || buffer[1] != '[') return -1;
-    if (sscanf(&buffer[2], "%d;%d", width, height) != 2) return -1;
+    if (sscanf(&buffer[2], "%d;%d", rows, cols) != 2) return -1;
 
     return 0;
 }
 
-int getWindowSize(int *width, int *height) {
+int getWindowSize(int *rows, int *cols) {
     struct winsize ws;
 
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 ||
         ws.ws_col == 0) {
         if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;
-        return getCursorPosition(width, height);
+        return getCursorPosition(rows, cols);
     } else {
-        *width = ws.ws_col;
-        *height = ws.ws_row;
+        *cols = ws.ws_col;
+        *rows = ws.ws_row;
         return 0;
     }
 }
 
 /*** Row Operations ***/
 
-int editorRowCxToRx(erow * row, int cx) {
+int editorRowCxToRx(erow *row, int cx) {
     int rx = 0;
     for (int j = 0; j < cx; j++) {
         if (row->data[j] == '\t')
@@ -188,23 +189,24 @@ int editorRowCxToRx(erow * row, int cx) {
 
 void editorUpdateRow(erow *row) {
     int tabs = 0;
-    for (int j = 0; j < row->size; j++)
+    int j;
+    for (j = 0; j < row->size; j++)
         if (row->data[j] == '\t') tabs++;
 
     free(row->render);
-    row->render = malloc(row->size + tabs*(TAB_STOP - 1)+ 1);
+    row->render = malloc(row->size + tabs*(TAB_STOP - 1) + 1);
 
     int idx = 0;
-    for (int j = 0; j < row->size; j++) {
+    for (j = 0; j < row->size; j++) {
         if (row->data[j] == '\t') {
             row->render[idx++] = ' ';
             while (idx % TAB_STOP != 0) row->render[idx++] = ' ';
-        }else {
+        } else {
             row->render[idx++] = row->data[j];
         }
     }
     row->render[idx] = '\0';
-    row->size = idx;
+    row->rsize = idx;
 }
 
 void editorAppendRow(char *s, size_t len) {
@@ -218,6 +220,7 @@ void editorAppendRow(char *s, size_t len) {
 
     E.row[at].rsize = 0;
     E.row[at].render = NULL;
+    editorUpdateRow(&E.row[at]);
 
     E.numrows++;
 }
@@ -234,7 +237,8 @@ void editorOpen(char *filename) {
     size_t linecap = 0;
     ssize_t linelen;
     while ((linelen = getline(&line, &linecap, fp)) != -1) {
-        while (linelen > 0 && (line[linelen - 1] == '\n' || line[linelen - 1] == '\r'))
+        while (linelen > 0 && (line[linelen - 1] == '\n' ||
+                               line[linelen - 1] == '\r'))
             linelen--;
         editorAppendRow(line, linelen);
     }
@@ -250,11 +254,11 @@ struct append_buffer {
 
 #define APPEND_BUFFER_INIT {NULL, 0}
 
-void appendBufferAppend(struct append_buffer *ab, const char *buf, int len) {
+void appendBufferAppend(struct append_buffer *ab, const char *s, int len) {
     char *new = realloc(ab->buf, ab->len + len);
 
     if (new == NULL) return;
-    memcpy(&new[ab->len], buf, len);
+    memcpy(&new[ab->len], s, len);
     ab->buf = new;
     ab->len += len;
 }
@@ -265,7 +269,8 @@ void appendBufferFree(struct append_buffer *ab) {
 
 /*** Output ***/
 void editorScroll() {
-    E.rx = E.cx;
+    E.rx = 0;
+
     if (E.cy < E.numrows) {
         E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
     }
@@ -273,40 +278,41 @@ void editorScroll() {
     if (E.cy < E.rowoffset) {
         E.rowoffset = E.cy;
     }
-    if (E.cy >= E.rowoffset + E.screen_height) {
-        E.rowoffset = E.cy - E.screen_height + 1;
+    if (E.cy >= E.rowoffset + E.screenrows) {
+        E.rowoffset = E.cy - E.screenrows + 1;
     }
     if (E.rx < E.coloffset) {
         E.coloffset = E.rx;
     }
-    if (E.rx >= E.coloffset + E.screen_width) {
-        E.coloffset = E.rx - E.screen_width + 1;
+    if (E.rx >= E.coloffset + E.screencols) {
+        E.coloffset = E.rx - E.screencols + 1;
     }
 }
 
 void editorDrawRows(struct append_buffer *ab) {
-    for (int y = 0; y < E.screen_height; y++) {
+    int y;
+    for (y = 0; y < E.screenrows; y++) {
         int filerow = y + E.rowoffset;
         if (filerow >= E.numrows) {
-            if (E.numrows == 0 && y == E.screen_height / 3) {
+            if (E.numrows == 0 && y == E.screenrows / 3) {
                 char welcome[80];
-                int welcomeLen = snprintf(welcome, sizeof(welcome),
-                                          "Text Editor -- Version %s", VERSION);
-                if (welcomeLen > E.screen_width) welcomeLen = E.screen_width;
-                int padding = (E.screen_width - welcomeLen) / 2;
+                int welcomelen = snprintf(welcome, sizeof(welcome),
+                  "TE -- version %s", VERSION);
+                if (welcomelen > E.screencols) welcomelen = E.screencols;
+                int padding = (E.screencols - welcomelen) / 2;
                 if (padding) {
                     appendBufferAppend(ab, "~", 1);
                     padding--;
                 }
                 while (padding--) appendBufferAppend(ab, " ", 1);
-                appendBufferAppend(ab, welcome, welcomeLen);
+                appendBufferAppend(ab, welcome, welcomelen);
             } else {
                 appendBufferAppend(ab, "~", 1);
             }
         } else {
             int len = E.row[filerow].rsize - E.coloffset;
             if (len < 0) len = 0;
-            if (len > E.screen_width) len = E.screen_width;
+            if (len > E.screencols) len = E.screencols;
             appendBufferAppend(ab, &E.row[filerow].render[E.coloffset], len);
         }
 
@@ -319,16 +325,16 @@ void editorDrawStatusBar(struct append_buffer *ab) {
     appendBufferAppend(ab, "\x1b[7m", 4);
     char status[80], rstatus[80];
     int len = snprintf(status, sizeof(status), "%.20s - %d lines",
-        E.filename ? E.filename : "[No Name]", E.numrows);
+      E.filename ? E.filename : "[No Name]", E.numrows);
     int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d",
-        E.cy + 1, E.numrows);
-    if (len > E.screen_width) len = E.screen_width;
+      E.cy + 1, E.numrows);
+    if (len > E.screencols) len = E.screencols;
     appendBufferAppend(ab, status, len);
-    while (len < E.screen_width) {
-        if (E.screen_width - len == rlen) {
+    while (len < E.screencols) {
+        if (E.screencols - len == rlen) {
             appendBufferAppend(ab, rstatus, rlen);
             break;
-        } else{
+        } else {
             appendBufferAppend(ab, " ", 1);
             len++;
         }
@@ -340,7 +346,7 @@ void editorDrawStatusBar(struct append_buffer *ab) {
 void editorDrawMessageBar(struct append_buffer *ab) {
     appendBufferAppend(ab, "\x1b[K", 3);
     int msglen = strlen(E.statusmsg);
-    if (msglen > E.screen_width) msglen = E.screen_width;
+    if (msglen > E.screencols) msglen = E.screencols;
     if (msglen && time(NULL) - E.statusmsg_time < 5) {
         appendBufferAppend(ab, E.statusmsg, msglen);
     }
@@ -369,10 +375,10 @@ void editorRefreshScreen() {
     appendBufferFree(&ab);
 }
 
-void editorSetStatusMessage(const char *message, ...) {
+void editorSetStatusMessage(const char *fmt, ...) {
     va_list ap;
-    va_start(ap, message);
-    vsnprintf(E.statusmsg, sizeof(E.statusmsg), message, ap);
+    va_start(ap, fmt);
+    vsnprintf(E.statusmsg, sizeof(E.statusmsg), fmt, ap);
     va_end(ap);
     E.statusmsg_time = time(NULL);
 }
@@ -435,12 +441,19 @@ void editorProcessKeypress() {
             }
             break;
         case PAGE_UP:
-        case PAGE_DOWN: {
-            int times = E.screen_height;
-            while (times--) {
-                editorMoveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
+        case PAGE_DOWN:
+            {
+                if (c == PAGE_UP) {
+                    E.cy = E.rowoffset;
+                } else if (c == PAGE_DOWN) {
+                    E.cy = E.rowoffset + E.screenrows - 1;
+                    if (E.cy > E.numrows) E.cy = E.numrows;
+                }
+                int times = E.screenrows;
+                while (times--)
+                    editorMoveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
             }
-        }
+            break;
         case ARROW_UP:
         case ARROW_DOWN:
         case ARROW_LEFT:
@@ -464,8 +477,8 @@ void initEditor() {
     E.statusmsg[0] = '\0';
     E.statusmsg_time = 0;
 
-    if (getWindowSize(&E.screen_width, &E.screen_height) == -1) die("getWindowSize");
-    E.screen_height -= 2;
+    if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
+    E.screenrows -= 2;
 }
 
 int main(int argc, char *argv[]) {
@@ -475,6 +488,7 @@ int main(int argc, char *argv[]) {
         editorOpen(argv[1]);
     }
 
+    editorSetStatusMessage("HELP:: CTRL-Q to quit");
     while (1) {
         editorRefreshScreen();
         editorProcessKeypress();
