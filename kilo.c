@@ -10,11 +10,13 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 
@@ -53,6 +55,8 @@ struct editorConfig {
     int numrows;
     erow *row;
     char *filename;
+    char statusmsg[80];
+    time_t statusmsg_time;
     struct termios orig_termios;
 };
 
@@ -330,6 +334,16 @@ void editorDrawStatusBar(struct append_buffer *ab) {
         }
     }
     appendBufferAppend(ab, "\x1b[m", 3);
+    appendBufferAppend(ab, "\r\n", 2);
+}
+
+void editorDrawMessageBar(struct append_buffer *ab) {
+    appendBufferAppend(ab, "\x1b[K", 3);
+    int msglen = strlen(E.statusmsg);
+    if (msglen > E.screen_width) msglen = E.screen_width;
+    if (msglen && time(NULL) - E.statusmsg_time < 5) {
+        appendBufferAppend(ab, E.statusmsg, msglen);
+    }
 }
 
 void editorRefreshScreen() {
@@ -342,6 +356,7 @@ void editorRefreshScreen() {
 
     editorDrawRows(&ab);
     editorDrawStatusBar(&ab);
+    editorDrawMessageBar(&ab);
 
     char buffer[32];
     snprintf(buffer, sizeof(buffer), "\x1b[%d;%dH", (E.cy - E.rowoffset) + 1,
@@ -352,6 +367,14 @@ void editorRefreshScreen() {
 
     write(STDOUT_FILENO, ab.buf, ab.len);
     appendBufferFree(&ab);
+}
+
+void editorSetStatusMessage(const char *message, ...) {
+    va_list ap;
+    va_start(ap, message);
+    vsnprintf(E.statusmsg, sizeof(E.statusmsg), message, ap);
+    va_end(ap);
+    E.statusmsg_time = time(NULL);
 }
 
 /*** Input ***/
@@ -438,9 +461,11 @@ void initEditor() {
     E.numrows = 0;
     E.row = NULL;
     E.filename = NULL;
+    E.statusmsg[0] = '\0';
+    E.statusmsg_time = 0;
 
     if (getWindowSize(&E.screen_width, &E.screen_height) == -1) die("getWindowSize");
-    E.screen_height -= 1;
+    E.screen_height -= 2;
 }
 
 int main(int argc, char *argv[]) {
