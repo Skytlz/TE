@@ -25,6 +25,7 @@
 #define CTRL_KEY(k) ((k) & 0x1f)
 #define VERSION "0.0.1"
 #define TAB_STOP 8
+#define QUIT_CONFIRMATION 2
 
 enum editorKey {
     BACKSPACE = 127,
@@ -495,6 +496,8 @@ void editorMoveCursor(int key) {
 }
 
 void editorProcessKeypress() {
+    static int quit_conf = QUIT_CONFIRMATION;
+
     int c = editorReadKey();
 
     switch (c) {
@@ -502,6 +505,13 @@ void editorProcessKeypress() {
             /* TODO */
             break;
         case CTRL_KEY('q'):
+            if (E.dirty && quit_conf > 0) {
+                editorSetStatusMessage("WARNING!!! File has unsaved changes. "
+                    "Please save your changes to the editor. "
+                    "Otherwise, press CTRL-Q %d more times to quit.", quit_conf);
+                quit_conf--;
+                return;
+            }
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(0);
@@ -553,6 +563,7 @@ void editorProcessKeypress() {
             editorInsertChar(c);
             break;
     }
+    quit_conf = QUIT_CONFIRMATION;
 }
 
 
