@@ -69,6 +69,8 @@ struct editorConfig E;
 /*** Prototypes ***/
 
 void editorSetStatusMessage(const char* fmt, ...);
+void editorRefreshScreen();
+char *editorPrompt(char *prompt);
 
 /*** Terminal ***/
 
@@ -362,7 +364,14 @@ void editorOpen(char *filename) {
 }
 
 void editorSave() {
-    if (E.filename == NULL) return;
+    if (E.filename == NULL) {
+        E.filename = editorPrompt("Save as: %s (ESC to cancel)");
+        if (E.filename == NULL) {
+            editorSetStatusMessage("Save aborted");
+            return;
+        }
+    }
+
     int len;
     char *buffer = editorRowsToString(&len);
 
@@ -522,6 +531,41 @@ void editorSetStatusMessage(const char *fmt, ...) {
 }
 
 /*** Input ***/
+
+char *editorPrompt(char *prompt) {
+    size_t buffersize = 128;
+    char *buffer = malloc(buffersize);
+
+    size_t bufferlen = 0;
+    buffer[0] = '\0';
+
+    while (1) {
+        editorSetStatusMessage(prompt, buffer);
+        editorRefreshScreen();
+
+        int c = editorReadKey();
+        if (c == DEL || c == CTRL_KEY('h') || c == BACKSPACE) {
+            if (bufferlen != 0) buffer[--bufferlen] = '\0';
+        } else if (c == '\x1b') {
+            editorSetStatusMessage("");
+            free(buffer);
+            return NULL;
+        } else if (c == '\r') {
+            if (bufferlen != 0) {
+                editorSetStatusMessage("");
+                return buffer;
+            }
+        } else if (!iscntrl(c) && c < 128) {
+            if (bufferlen == buffersize - 1) {
+                buffersize *= 2;
+                buffer = realloc(buffer, buffersize);
+            }
+            buffer[bufferlen++] = c;
+            buffer[bufferlen] = '\0';
+        }
+    }
+}
+
 void editorMoveCursor(int key) {
     erow *row = (E.cy >= E.numrows) ? NULL : &E.row[E.cy];
 
