@@ -425,10 +425,23 @@ void editorSearchCallback(char *query, int key) {
 }
 
 void editorSearch() {
+    int scx = E.cx;
+    int scy = E.cy;
+    int scoloffset = E.coloffset;
+    int srowoffset = E.rowoffset;
+
+
     char *query = editorPrompt("Search: %s (ESC to cancel)", editorSearchCallback);
     if (query) {
         free(query);
+    } else {
+        E.cx = scx;
+        E.cy = scy;
+        E.coloffset = scoloffset;
+        E.rowoffset = srowoffset;
     }
+
+
 }
 /*** Append Buffer ***/
 struct append_buffer {
