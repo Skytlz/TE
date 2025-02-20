@@ -193,15 +193,30 @@ int getWindowSize(int *rows, int *cols) {
 }
 
 /*** Syntax Highlighting ***/
+int is_separator(char c) {
+    return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];", c) != NULL;
+}
+
 void editorUpdateSyntax(erow *row) {
     row->hl = realloc(row->hl, row->rsize);
     memset(row->hl, HL_NORMAL, row->rsize);
 
-    int i;
-    for (i = 0; i < row->rsize; i++) {
-        if (isdigit(row->render[i])) {
+    int prev_sep = 1;
+
+    int i = 0;
+    while (i < row->rsize) {
+        char c = row->render[i];
+        unsigned char prev_hl = (i > 0) ? row->hl[i - 1] : HL_NORMAL;
+
+        if (isdigit(c) && (prev_sep || prev_hl == HL_NUMBER) ||
+            (c == '.' && prev_hl == HL_NUMBER)) {
             row->hl[i] = HL_NUMBER;
+            i++;
+            prev_sep = 0;
+            continue;
         }
+        prev_sep = is_separator(c);
+        i++;
     }
 }
 
@@ -481,7 +496,7 @@ void editorSearchCallback(char *query, int key) {
             E.cx = editorRowRxToCx(row, match - row->render);
             E.rowoffset = E.numrows;
             saved_hl_line = current;
-            saved_hl = malloc(row->rsize)
+            saved_hl = malloc(row->rsize);
             memcpy(saved_hl, row->hl, row->rsize);
             memset(&row->hl[match - row->render], HL_MATCH, strlen(query));
             break;
