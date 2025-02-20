@@ -70,7 +70,7 @@ struct editorConfig E;
 
 void editorSetStatusMessage(const char* fmt, ...);
 void editorRefreshScreen();
-char *editorPrompt(char *prompt);
+char *editorPrompt(char *prompt, void (*callback)(char *, int));
 
 /*** Terminal ***/
 
@@ -378,7 +378,7 @@ void editorOpen(char *filename) {
 
 void editorSave() {
     if (E.filename == NULL) {
-        E.filename = editorPrompt("Save as: %s (ESC to cancel)");
+        E.filename = editorPrompt("Save as: %s (ESC to cancel)", NULL);
         if (E.filename == NULL) {
             editorSetStatusMessage("Save aborted");
             return;
@@ -406,9 +406,10 @@ void editorSave() {
 }
 
 /** Search ***/
-void editorSearch() {
-    char *query = editorPrompt("Search: %s (ESC to cancel)");
-    if (query == NULL) return;
+void editorSearchCallback(char *query, int key) {
+    if (key == '\r' || key == '\x1b') {
+        return;
+    }
 
     int i;
     for (i = 0; i < E.numrows; i++) {
@@ -421,9 +422,14 @@ void editorSearch() {
             break;
         }
     }
-    free(query);
 }
 
+void editorSearch() {
+    char *query = editorPrompt("Search: %s (ESC to cancel)", editorSearchCallback);
+    if (query) {
+        free(query);
+    }
+}
 /*** Append Buffer ***/
 struct append_buffer {
     char *buf;
@@ -564,7 +570,7 @@ void editorSetStatusMessage(const char *fmt, ...) {
 
 /*** Input ***/
 
-char *editorPrompt(char *prompt) {
+char *editorPrompt(char *prompt, void (*callback)(char *, int)) {
     size_t buffersize = 128;
     char *buffer = malloc(buffersize);
 
@@ -580,11 +586,13 @@ char *editorPrompt(char *prompt) {
             if (bufferlen != 0) buffer[--bufferlen] = '\0';
         } else if (c == '\x1b') {
             editorSetStatusMessage("");
+            if (callback) callback(buffer, c);
             free(buffer);
             return NULL;
         } else if (c == '\r') {
             if (bufferlen != 0) {
                 editorSetStatusMessage("");
+                if (callback) callback(buffer, c);
                 return buffer;
             }
         } else if (!iscntrl(c) && c < 128) {
@@ -595,6 +603,7 @@ char *editorPrompt(char *prompt) {
             buffer[bufferlen++] = c;
             buffer[bufferlen] = '\0';
         }
+        if (callback) callback(buffer, c);
     }
 }
 
