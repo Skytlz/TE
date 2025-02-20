@@ -314,7 +314,7 @@ void editorDelChar() {
         editorRowDelChar(row, E.cx - 1);
         E.cx--;
     } else {
-        E.cx = E.row[E.cy].size;
+        E.cx = E.row[E.cy - 1].size;
         editorRowAppendString(&E.row[E.cy - 1], row->data, row->size);
         editorDelRow(E.cy);
         E.cy--;
@@ -377,7 +377,7 @@ void editorSave() {
 
     int fd = open(E.filename, O_RDWR | O_CREAT, 0644);
     if (fd != -1) {
-        if (ftruncate(fd, len) == -1) {
+        if (ftruncate(fd, len) != -1) {
             if (write(fd, buffer, len) == len) {
                 close(fd);
                 free(buffer);
@@ -616,9 +616,8 @@ void editorProcessKeypress() {
             break;
         case CTRL_KEY('q'):
             if (E.dirty && quit_conf > 0) {
-                editorSetStatusMessage("WARNING!!! File has unsaved changes. "
-                    "Please save your changes to the editor. "
-                    "Otherwise, press CTRL-Q %d more times to quit.", quit_conf);
+                editorSetStatusMessage("WARNING!!! File has unsaved changes."
+                    "Press CTRL-Q %d more times to quit.", quit_conf);
                 quit_conf--;
                 return;
             }
