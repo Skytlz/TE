@@ -23,7 +23,7 @@
 
 /*** Defines ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
-#define VERSION "0.0.1"
+#define VERSION "0.1.0"
 #define TAB_STOP 8
 #define QUIT_CONFIRMATION 2
 
@@ -60,7 +60,7 @@ struct editorSyntax {
     char *filetype;
     char **filematch;
     char **keywords;
-    char *singeline_comment;
+    char *singleline_comment;
     char *multiline_comment_start;
     char *multiline_comment_end;
     int flags;
@@ -100,7 +100,7 @@ struct editorConfig E;
 char *C_HL_extensions[] = {".c", ".h", ".cpp", ".hpp", NULL};
 char *C_HL_keywords[] = {
     "switch", "struct", "static", "while", "if", "for", "break", "continue",
-    "return", "union", "typedef", "enum", "class", "case",
+    "return", "union", "typedef", "enum", "class", "case", "else",
 
     "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
     "void|", "uint8_t|", "uint16_t|", "uint32_t|", "uint64_t", NULL
@@ -239,7 +239,7 @@ int getWindowSize(int *rows, int *cols) {
 }
 
 /*** Syntax Highlighting ***/
-int is_separator(char c) {
+int is_separator(int c) {
     return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];", c) != NULL;
 }
 
@@ -251,7 +251,7 @@ void editorUpdateSyntax(erow *row) {
 
     char **keywords = E.syntax->keywords;
 
-    char *scs = E.syntax->singeline_comment;
+    char *scs = E.syntax->singleline_comment;
     char *mcs = E.syntax->multiline_comment_start;
     char *mce = E.syntax->multiline_comment_end;
 
@@ -296,7 +296,7 @@ void editorUpdateSyntax(erow *row) {
             }
         }
 
-        if (E.syntax->flags & HL_HIGHLIGHT_NUMBERS) {
+        if (E.syntax->flags & HL_HIGHLIGHT_STRINGS) {
             if (in_string) {
                 row->hl[i] = HL_STRING;
                 if (c == '\\' && i + 1 < row->rsize) {
